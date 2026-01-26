@@ -41,7 +41,13 @@ minikube addons enable ingress
 
 echo ""
 echo "🐳 Building Docker images in Minikube..."
-eval $(minikube docker-env)
+if eval $(minikube docker-env); then
+    echo "✅ Connected to Minikube Docker daemon"
+else
+    echo "❌ Failed to connect to Minikube Docker daemon"
+    exit 1
+fi
+
 docker build -t training-backend:latest ./app/backend
 docker build -t training-frontend:latest ./app/frontend
 
@@ -54,7 +60,10 @@ kubectl apply -f kubernetes/05-ingress.yaml
 
 echo ""
 echo "⏳ Waiting for pods to be ready..."
-kubectl wait --for=condition=ready pod --all -n cloud-native-training --timeout=300s || true
+if ! kubectl wait --for=condition=ready pod --all -n cloud-native-training --timeout=300s; then
+    echo "⚠️  Warning: Some pods may not be ready yet. Check status with:"
+    echo "   kubectl get pods -n cloud-native-training"
+fi
 
 echo ""
 echo "✅ Application deployed to Kubernetes!"

@@ -11,6 +11,8 @@ This directory contains demos for learning Docker concepts including containers,
 
 ### Build and Run a Single Container
 
+**Note:** This demo uses port 3000. If you have another service using this port, either stop that service or modify the `-p` flag to use a different host port (e.g., `-p 3001:3000`).
+
 ```bash
 # Build the backend image
 cd app/backend

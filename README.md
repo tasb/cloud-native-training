@@ -67,6 +67,8 @@ This training uses a simple 3-tier web application:
 ### Components
 
 - **Frontend**: Simple HTML/JavaScript UI served by Nginx
+  - Automatically detects API endpoint based on hostname
+  - Can be configured via `window.API_BASE_URL` if needed
 - **Backend**: RESTful API built with Node.js and Express
 - **Database**: PostgreSQL database with sample data
 
