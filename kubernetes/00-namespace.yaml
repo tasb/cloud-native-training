@@ -1,0 +1,5 @@
+# Namespace for the training
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloud-native-training

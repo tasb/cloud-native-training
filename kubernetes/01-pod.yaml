@@ -1,0 +1,38 @@
+# Demo: Simple Pod
+# This demonstrates the basic building block of Kubernetes
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backend-pod
+  namespace: cloud-native-training
+  labels:
+    app: backend
+    tier: api
+spec:
+  containers:
+  - name: backend
+    image: training-backend:latest
+    imagePullPolicy: Never  # For minikube, use local images
+    ports:
+    - containerPort: 3000
+      name: http
+    env:
+    - name: DB_HOST
+      value: "postgres-service"
+    - name: DB_PORT
+      value: "5432"
+    - name: DB_NAME
+      value: "cloudnative"
+    - name: DB_USER
+      value: "postgres"
+    - name: DB_PASSWORD
+      value: "postgres"
+    - name: PORT
+      value: "3000"
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "100m"
+      limits:
+        memory: "128Mi"
+        cpu: "200m"
