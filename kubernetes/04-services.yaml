@@ -1,0 +1,104 @@
+# Demo: Services
+# Services provide stable networking for pods
+
+---
+# ClusterIP Service for Database (internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: cloud-native-training
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+    tier: database
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+
+---
+# ClusterIP Service for Backend
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: cloud-native-training
+  labels:
+    app: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+    tier: api
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: http
+
+---
+# NodePort Service for Backend (external access in minikube)
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-nodeport
+  namespace: cloud-native-training
+  labels:
+    app: backend
+spec:
+  type: NodePort
+  selector:
+    app: backend
+    tier: api
+  ports:
+  - port: 3000
+    targetPort: 3000
+    nodePort: 30000
+    protocol: TCP
+    name: http
+
+---
+# ClusterIP Service for Frontend
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: cloud-native-training
+  labels:
+    app: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+    tier: web
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+
+---
+# NodePort Service for Frontend (external access in minikube)
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-nodeport
+  namespace: cloud-native-training
+  labels:
+    app: frontend
+spec:
+  type: NodePort
+  selector:
+    app: frontend
+    tier: web
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080
+    protocol: TCP
+    name: http
