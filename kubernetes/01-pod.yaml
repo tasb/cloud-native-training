@@ -11,8 +11,7 @@ metadata:
 spec:
   containers:
   - name: backend
-    image: training-backend:latest
-    imagePullPolicy: Never  # For minikube, use local images
+    image: tasb/training-backend:v1
     ports:
     - containerPort: 3000
       name: http

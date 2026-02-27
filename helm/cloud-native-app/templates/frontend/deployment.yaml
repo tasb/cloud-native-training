@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cloud-native-app.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cloud-native-app.frontendSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloud-native-app.frontendSelectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - containerPort: 80
+              name: http
+          env:
+            - name: API_BASE_URL
+              value: "http://{{ .Values.ingress.host }}/api"
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}

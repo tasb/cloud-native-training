@@ -1,0 +1,30 @@
+apiVersion: v2
+name: cloud-native-app
+description: |
+  3-tier cloud-native application (Frontend + Backend + PostgreSQL) with a full
+  observability stack: OpenTelemetry instrumentation, Prometheus metrics and
+  Jaeger distributed tracing, all visualised in Grafana.
+type: application
+version: 0.1.0
+appVersion: "2.0.0"
+
+maintainers:
+  - name: Cloud Native Training
+    url: https://github.com/tasb/cloud-native-training
+
+dependencies:
+  # Prometheus – pulls metrics from the backend /metrics endpoint
+  - name: prometheus
+    version: "25.27.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus.enabled
+
+  # Grafana – dashboards for both Prometheus and Jaeger datasources
+  - name: grafana
+    version: "8.6.4"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: grafana.enabled
+
+  # Jaeger all-in-one is deployed via our own template (templates/jaeger/)
+  # rather than a sub-chart because the jaegertracing/jaeger chart v4+
+  # no longer supports in-memory storage (requires Cassandra/Elasticsearch).

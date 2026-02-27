@@ -1,0 +1,15 @@
+{{- if .Values.grafana.enabled }}
+# This ConfigMap holds the pre-built Grafana dashboard JSON.
+# It is mounted into the Grafana pod by the dashboardsConfigMaps setting in values.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-grafana-dashboards
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloud-native-app.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  backend-dashboard.json: |
+    {{ .Files.Get "dashboards/backend-dashboard.json" | nindent 4 }}
+{{- end }}

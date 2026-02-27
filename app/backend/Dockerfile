@@ -10,14 +10,16 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install --production
 
-# Copy application code
-COPY server.js .
+# Copy application code (including OTel tracing setup)
+COPY server.js tracing.js ./
 
-# Expose port
-EXPOSE 3000
+# Expose app port and Prometheus metrics port
+EXPOSE 3000 9464
 
 # Set environment variables
-ENV PORT=3000
+ENV PORT=3000 \
+    OTEL_SERVICE_NAME=backend-api \
+    OTEL_TRACES_SAMPLER=parentbased_always_on
 
 # Start the application
 CMD ["node", "server.js"]

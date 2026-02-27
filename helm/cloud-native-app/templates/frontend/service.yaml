@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cloud-native-app.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.frontend.service.type }}
+  selector:
+    {{- include "cloud-native-app.frontendSelectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: 80
+      protocol: TCP
+      name: http

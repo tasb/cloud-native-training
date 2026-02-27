@@ -189,9 +189,9 @@
         // Determine API URL based on environment
         // For production, you can set window.API_BASE_URL in the HTML or via a config file
         const API_URL = window.API_BASE_URL || 
-                        (window.location.hostname === 'localhost' 
+                        (window.location.hostname === 'localhost'
                             ? 'http://localhost:3000' 
-                            : `http://${window.location.hostname}:3000`);
+                            : `http://${window.location.hostname}`);
         
         const statusDiv = document.getElementById('status');
         const itemsListDiv = document.getElementById('itemsList');

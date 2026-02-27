@@ -24,25 +24,6 @@ minikube status
 kubectl config use-context minikube
 ```
 
-## Build Docker Images in Minikube
-
-Before deploying to Kubernetes, build the images in Minikube's Docker environment:
-
-```bash
-# Point Docker CLI to minikube's Docker daemon
-eval $(minikube docker-env)
-
-# Build images
-docker build -t training-backend:latest ./app/backend
-docker build -t training-frontend:latest ./app/frontend
-
-# Verify images
-docker images | grep training
-
-# Return to your local Docker daemon (optional)
-eval $(minikube docker-env -u)
-```
-
 ## Demo 1: Pods
 
 Pods are the smallest deployable units in Kubernetes.
@@ -177,7 +158,7 @@ kubectl rollout status deployment backend-deployment -n cloud-native-training
 
 ```bash
 # Update the image version (simulated update)
-kubectl set image deployment/backend-deployment backend=training-backend:v2 -n cloud-native-training
+kubectl set image deployment/backend-deployment backend=tasb/training-backend:v2 -n cloud-native-training
 
 # Watch the rollout
 kubectl rollout status deployment backend-deployment -n cloud-native-training
@@ -199,7 +180,7 @@ kubectl rollout undo deployment backend-deployment --to-revision=1 -n cloud-nati
 kubectl scale deployment backend-deployment --replicas=5 -n cloud-native-training
 
 # Autoscale (requires metrics server)
-kubectl autoscale deployment backend-deployment --min=2 --max=10 --cpu-percent=80 -n cloud-native-training
+kubectl apply -f 06-hpa.yaml
 
 # View horizontal pod autoscaler
 kubectl get hpa -n cloud-native-training
@@ -264,27 +245,11 @@ kubectl get svc backend-nodeport -n cloud-native-training
 # Get minikube IP
 minikube ip
 
-# Access the service
-curl http://$(minikube ip):30000/health
-
-# Access frontend
-curl http://$(minikube ip):30080
-
 # Or use minikube service command
 minikube service backend-nodeport -n cloud-native-training
 minikube service frontend-nodeport -n cloud-native-training
 ```
 
-#### LoadBalancer (Cloud Provider)
-
-Note: LoadBalancer type requires cloud provider support. In Minikube, use `minikube tunnel`.
-
-```bash
-# In a separate terminal, run:
-minikube tunnel
-
-# Then you can access LoadBalancer services
-```
 
 ### Service Discovery
 
@@ -383,29 +348,69 @@ curl http://training.local/
 curl http://training.local/api/health
 ```
 
-## Complete Application Demo
+## Demo 6: Horizontal Pod Autoscaler
 
-### Deploy Everything
+Horizontal Pod Autoscaler (HPA) automatically scales the number of pods in a deployment based on CPU utilization or other metrics.
+
+### Prerequisites
+
+Ensure Metrics Server is installed in your cluster (required for CPU-based scaling):
 
 ```bash
-# 1. Create namespace
-kubectl apply -f kubernetes/00-namespace.yaml
+# Install Metrics Server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
-# 2. Deploy all components
-kubectl apply -f kubernetes/03-deployments.yaml
+# Verify metrics server is running
+kubectl get pods -n kube-system | grep metrics-server
 
-# 3. Create services
-kubectl apply -f kubernetes/04-services.yaml
-
-# 4. Create ingress
-kubectl apply -f kubernetes/05-ingress.yaml
-
-# 5. Wait for all pods to be ready
-kubectl wait --for=condition=ready pod --all -n cloud-native-training --timeout=300s
-
-# 6. Verify everything is running
-kubectl get all -n cloud-native-training
+# Wait for metrics to be available
+kubectl top nodes
+kubectl top pods -n cloud-native-training
 ```
+
+### Deploy HPA
+
+```bash
+# Create HPA for backend deployment
+kubectl apply -f kubernetes/06-hpa.yaml
+
+# List HPAs
+kubectl get hpa -n cloud-native-training
+
+# Describe HPA
+kubectl describe hpa backend-hpa -n cloud-native-training
+```
+
+### Test HPA Scaling
+
+To demonstrate HPA, we need to generate CPU load on the backend pods to trigger scaling up.
+
+```bash
+# Use the provided script to start/stop load
+./kubernetes/hpa-test.sh start
+./kubernetes/hpa-test.sh stop
+
+# Or manually start CPU load on each backend pod
+kubectl exec -it <backend-pod-name> -n cloud-native-training -- sh -c "dd if=/dev/zero of=/dev/null &"
+
+# Monitor scaling
+kubectl get hpa -n cloud-native-training -w
+kubectl get pods -n cloud-native-training -l app=backend -w
+
+# Stop the load manually
+kubectl exec -it <backend-pod-name> -n cloud-native-training -- sh -c "pkill dd"
+```
+
+### HPA Configuration
+
+The HPA is configured to:
+- Target: `backend-deployment`
+- Min replicas: 1
+- Max replicas: 10
+- CPU utilization target: 50%
+
+## Complete Application Demo
+
 
 ### Access the Application
 
@@ -416,74 +421,8 @@ minikube service frontend-nodeport -n cloud-native-training
 # Via Ingress (after configuring /etc/hosts)
 open http://training.local
 
-# Test backend API
-curl http://$(minikube ip):30000/health
-curl http://$(minikube ip):30000/api/items
 ```
 
-### Monitor the Application
-
-```bash
-# Watch all resources
-kubectl get all -n cloud-native-training --watch
-
-# View logs
-kubectl logs -f deployment/backend-deployment -n cloud-native-training
-kubectl logs -f deployment/frontend-deployment -n cloud-native-training
-kubectl logs -f deployment/postgres-deployment -n cloud-native-training
-
-# View events
-kubectl get events -n cloud-native-training --sort-by='.lastTimestamp'
-
-# Resource usage
-kubectl top pods -n cloud-native-training
-kubectl top nodes
-```
-
-## Troubleshooting
-
-### Pod Issues
-
-```bash
-# Check pod status
-kubectl get pods -n cloud-native-training
-
-# Describe pod to see events
-kubectl describe pod <pod-name> -n cloud-native-training
-
-# View logs
-kubectl logs <pod-name> -n cloud-native-training
-
-# Previous logs (if pod crashed)
-kubectl logs <pod-name> -n cloud-native-training --previous
-
-# Execute commands in pod
-kubectl exec -it <pod-name> -n cloud-native-training -- sh
-```
-
-### Service Issues
-
-```bash
-# Check service endpoints
-kubectl get endpoints -n cloud-native-training
-
-# Verify service selector matches pod labels
-kubectl get pods -n cloud-native-training --show-labels
-kubectl describe svc <service-name> -n cloud-native-training
-```
-
-### Ingress Issues
-
-```bash
-# Check ingress controller logs
-kubectl logs -n ingress-nginx deployment/ingress-nginx-controller
-
-# Verify ingress resource
-kubectl describe ingress training-ingress -n cloud-native-training
-
-# Check if ingress has address
-kubectl get ingress -n cloud-native-training
-```
 
 ## Cleanup
 
@@ -505,42 +444,3 @@ minikube stop
 # Delete minikube cluster
 minikube delete
 ```
-
-## Key Learning Points
-
-1. **Pods**: Smallest deployable units, can have multiple containers
-2. **ReplicaSets**: Maintain desired number of pod replicas, self-healing
-3. **Deployments**: Declarative updates, rolling updates, rollback capability
-4. **Services**: Stable networking, load balancing, service discovery
-5. **Ingress**: HTTP/HTTPS routing, path-based routing, virtual hosts
-6. **ConfigMaps**: Store configuration data
-7. **Secrets**: Store sensitive information
-8. **Labels & Selectors**: Organize and select resources
-9. **Namespaces**: Isolate resources
-10. **Health Checks**: Liveness and readiness probes
-
-## Advanced Topics (Optional)
-
-### StatefulSets
-
-For stateful applications like databases that need stable network identities.
-
-### DaemonSets
-
-For running a pod on every node (e.g., log collectors, monitoring agents).
-
-### Jobs and CronJobs
-
-For batch processing and scheduled tasks.
-
-### Network Policies
-
-For controlling traffic between pods.
-
-### Persistent Volumes
-
-For durable storage that persists beyond pod lifecycle.
-
-### Helm
-
-Package manager for Kubernetes to manage complex applications.

@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cloud-native-app.labels" . | nindent 4 }}
+  annotations:
+    # Tell Prometheus to scrape this pod directly (optional — chart also uses static scrape config)
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3000"
+    prometheus.io/path: "/metrics"
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cloud-native-app.backendSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloud-native-app.backendSelectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            # ── OpenTelemetry configuration ──────────────────────────────────
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.backend.otel.serviceName | quote }}
+            # Disable trace export — no tracing backend deployed in this release.
+            # Set OTEL_TRACES_EXPORTER to "otlp" and add OTEL_EXPORTER_OTLP_ENDPOINT
+            # when a Jaeger / Tempo / OTLP-compatible backend is available.
+            - name: OTEL_TRACES_EXPORTER
+              value: "none"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}

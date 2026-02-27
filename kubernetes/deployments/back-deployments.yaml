@@ -1,12 +1,13 @@
-# Demo: ReplicaSet
-# This demonstrates how to maintain a specified number of pod replicas
+
+# Backend Deployment
 apiVersion: apps/v1
-kind: ReplicaSet
+kind: Deployment
 metadata:
-  name: backend-replicaset
+  name: backend-deployment
   namespace: cloud-native-training
   labels:
     app: backend
+    tier: api
 spec:
   replicas: 3
   selector:
@@ -22,7 +23,6 @@ spec:
       containers:
       - name: backend
         image: tasb/training-backend:v1
-        imagePullPolicy: Never
         ports:
         - containerPort: 3000
           name: http
@@ -32,13 +32,34 @@ spec:
         - name: DB_PORT
           value: "5432"
         - name: DB_NAME
-          value: "cloudnative"
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
         - name: DB_USER
-          value: "postgres"
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_USER
         - name: DB_PASSWORD
-          value: "postgres"
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
         - name: PORT
           value: "3000"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
         resources:
           requests:
             memory: "64Mi"
@@ -46,3 +67,4 @@ spec:
           limits:
             memory: "128Mi"
             cpu: "200m"
+

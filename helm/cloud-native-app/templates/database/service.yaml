@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cloud-native-app.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.database.service.type }}
+  selector:
+    {{- include "cloud-native-app.databaseSelectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.database.service.port }}
+      targetPort: 5432
+      protocol: TCP
+      name: postgres

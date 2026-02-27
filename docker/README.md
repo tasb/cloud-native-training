@@ -27,14 +27,14 @@ docker ps
 # View container logs
 docker logs backend-demo
 
+# Go to browser
+http://localhost:3000/health
+
 # Stop the container
 docker stop backend-demo
 
 # Start the container again
 docker start backend-demo
-
-# Remove the container
-docker rm -f backend-demo
 ```
 
 ### Container Inspection
@@ -51,6 +51,9 @@ docker exec -it backend-demo sh
 
 # View container processes
 docker top backend-demo
+
+# Remove the container
+docker rm -f backend-demo
 ```
 
 ## Demo 2: Dockerfile Deep Dive
@@ -111,6 +114,13 @@ docker image inspect training-backend:latest
 # View image history
 docker history training-backend:latest
 
+# Publish on docker hub
+docker tag training-backend:latest tasb/training-backend:v1
+docker tag training-frontend:latest tasb/training-frontend:v1
+
+docker push training-backend:latest tasb/training-backend:v1
+docker push training-frontend:latest tasb/training-frontend:v1
+
 # Remove image
 docker rmi training-backend:latest
 ```
@@ -147,9 +157,6 @@ docker-compose logs -f
 
 # View logs for specific service
 docker-compose logs -f backend
-
-# Scale a service (if applicable)
-docker-compose up -d --scale backend=3
 
 # Stop all services
 docker-compose stop
@@ -233,35 +240,8 @@ docker-compose down
 # Start again - data persists
 docker-compose up -d
 
-# Remove everything including volumes
-docker-compose down -v
-```
-
-## Demo 6: Environment Variables
-
-```bash
-# Override environment variables
-docker-compose up -d -e DB_PASSWORD=newsecret
-
-# Or create a .env file
-echo "DB_PASSWORD=newsecret" > .env
-docker-compose up -d
-```
-
-## Demo 7: Building and Rebuilding
-
-```bash
-# Build images without starting
-docker-compose build
-
-# Force rebuild and start
-docker-compose up -d --build
-
-# Build specific service
-docker-compose build backend
-
-# No cache build
-docker-compose build --no-cache
+# Remove everything
+docker-compose down -v --rmi all
 ```
 
 ## Troubleshooting

@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-deployment
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cloud-native-app.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.database.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cloud-native-app.databaseSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloud-native-app.databaseSelectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.database.image.repository }}:{{ .Values.database.image.tag }}"
+          imagePullPolicy: {{ .Values.database.image.pullPolicy }}
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - configMapRef:
+                name: postgres-config
+            - secretRef:
+                name: postgres-secret
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            {{- toYaml .Values.database.resources | nindent 12 }}
+      volumes:
+        - name: postgres-data
+          emptyDir: {}        # Use a PVC in production!
+        - name: init-script
+          configMap:
+            name: postgres-init-script

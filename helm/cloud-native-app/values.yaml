@@ -1,0 +1,189 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# cloud-native-app default values
+# Override any value with:  helm install ... --set key=value
+#                     or:  helm install ... -f my-values.yaml
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ---------------------------------------------------------------------------
+# Global
+# ---------------------------------------------------------------------------
+namespace: cloud-native-metrics
+
+# ---------------------------------------------------------------------------
+# Frontend
+# ---------------------------------------------------------------------------
+frontend:
+  replicaCount: 1
+  image:
+    repository: tasb/training-frontend
+    tag: "metrics"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# ---------------------------------------------------------------------------
+# Backend
+# ---------------------------------------------------------------------------
+backend:
+  replicaCount: 1
+  image:
+    repository: tasb/training-backend
+    tag: "metrics"          # v2 includes OpenTelemetry instrumentation
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  # OpenTelemetry configuration (env vars injected into the container)
+  otel:
+    serviceName: backend-api
+
+# ---------------------------------------------------------------------------
+# Database (PostgreSQL)
+# ---------------------------------------------------------------------------
+database:
+  image:
+    repository: postgres
+    tag: "15-alpine"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  config:
+    name: cloudnative
+    user: postgres
+  secret:
+    # Base64 of "postgres" — change in production!
+    passwordBase64: cG9zdGdyZXM=
+  service:
+    type: ClusterIP
+    port: 5432
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  host: training.metrics.local
+  annotations: {}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sub-chart: Prometheus
+# https://github.com/prometheus-community/helm-charts/tree/main/charts/prometheus
+# ──────────────────────────────────────────────────────────────────────────────
+prometheus:
+  enabled: true
+  alertmanager:
+    enabled: false
+  prometheus-pushgateway:
+    enabled: false
+  kube-state-metrics:
+    enabled: true
+  nodeExporter:
+    enabled: false
+  server:
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+  serverFiles:
+    prometheus.yml:
+      scrape_configs:
+        # Prometheus scrapes itself
+        - job_name: prometheus
+          static_configs:
+            - targets: ["localhost:9090"]
+
+        # Scrape the backend /metrics endpoint (custom + OTel metrics)
+        - job_name: backend-api
+          scrape_interval: 10s
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["backend-service.cloud-native-metrics.svc.cluster.local:3000"]
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: instance
+
+        # kube-state-metrics for pod/deployment health panels in Grafana
+        # NOTE: service name = <release-name>-kube-state-metrics (assumes release = "training")
+        - job_name: kube-state-metrics
+          static_configs:
+            - targets: ["training-kube-state-metrics.cloud-native-metrics.svc.cluster.local:8080"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sub-chart: Grafana
+# https://github.com/grafana/helm-charts/tree/main/charts/grafana
+# ──────────────────────────────────────────────────────────────────────────────
+grafana:
+  enabled: true
+  adminUser: admin
+  adminPassword: admin123   # Change in production
+
+  service:
+    type: NodePort
+    nodePort: 32500
+
+  # Pre-configure datasources so you don't have to click through the UI.
+  # NOTE: values.yaml is NOT templated, so URLs are literal strings.
+  # These assume the Helm release name is "training" and namespace is "cloud-native-metrics".
+  # If you use a different release name, update these URLs accordingly.
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          uid: prometheus
+          url: http://training-prometheus-server.cloud-native-metrics.svc.cluster.local
+          access: proxy
+          isDefault: true
+          jsonData:
+            timeInterval: "15s"
+
+
+  # Dashboard providers — load from a ConfigMap mounted at /var/lib/grafana/dashboards
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: default
+          orgId: 1
+          folder: Cloud Native Training
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  # Reference the ConfigMap created by our chart (templates/grafana-dashboard-cm.yaml).
+  # Assumes release name = "training". Update if you use a different release name.
+  dashboardsConfigMaps:
+    default: "training-grafana-dashboards"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+

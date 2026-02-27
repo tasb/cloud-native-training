@@ -1,0 +1,38 @@
+
+# Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  namespace: cloud-native-training
+  labels:
+    app: frontend
+    tier: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+      tier: web
+  template:
+    metadata:
+      labels:
+        app: frontend
+        tier: web
+    spec:
+      containers:
+      - name: frontend
+        image: tasb/training-frontend:v3
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+        env:
+        - name: API_BASE_URL
+          value: "http://api.training.local"

@@ -1,0 +1,97 @@
+# ConfigMap for Database Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: cloud-native-training
+data:
+  POSTGRES_DB: cloudnative
+  POSTGRES_USER: postgres
+---
+
+
+# ConfigMap for init script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+  namespace: cloud-native-training
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS items (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO items (name, description) VALUES
+        ('Docker', 'Container runtime for packaging and running applications'),
+        ('Kubernetes', 'Container orchestration platform'),
+        ('Cloud Native', 'Building and running scalable applications in modern cloud environments');
+---
+
+
+# Secret for Database Password
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: cloud-native-training
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: postgres
+---
+
+
+
+# Database Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-deployment
+  namespace: cloud-native-training
+  labels:
+    app: postgres
+    tier: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      tier: database
+  template:
+    metadata:
+      labels:
+        app: postgres
+        tier: database
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        envFrom:
+        - configMapRef:
+            name: postgres-config
+        - secretRef:
+            name: postgres-secret
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: postgres-storage
+        emptyDir: {}
+      - name: init-script
+        configMap:
+          name: postgres-init-script
