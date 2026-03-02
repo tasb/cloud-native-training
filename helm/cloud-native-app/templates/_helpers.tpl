@@ -75,3 +75,11 @@ app.kubernetes.io/name: {{ include "cloud-native-app.name" . }}-postgres
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/*
+Jaeger OTLP gRPC endpoint (used by backend as OTEL_EXPORTER_OTLP_ENDPOINT).
+Points to the jaeger Service deployed by templates/jaeger/.
+*/}}
+{{- define "cloud-native-app.jaegerEndpoint" -}}
+{{- printf "http://jaeger.%s.svc.cluster.local:4317" .Values.namespace }}
+{{- end }}
+

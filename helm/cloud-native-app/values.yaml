@@ -51,6 +51,7 @@ backend:
   # OpenTelemetry configuration (env vars injected into the container)
   otel:
     serviceName: backend-api
+    tracesSampler: parentbased_always_on
 
 # ---------------------------------------------------------------------------
 # Database (PostgreSQL)
@@ -159,6 +160,11 @@ grafana:
           jsonData:
             timeInterval: "15s"
 
+        - name: Jaeger
+          type: jaeger
+          uid: jaeger
+          url: http://jaeger.cloud-native-metrics.svc.cluster.local:16686
+          access: proxy
 
   # Dashboard providers — load from a ConfigMap mounted at /var/lib/grafana/dashboards
   dashboardProviders:
@@ -187,3 +193,25 @@ grafana:
       cpu: 200m
       memory: 256Mi
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Jaeger all-in-one (deployed via templates/jaeger/, NOT a Helm sub-chart)
+# jaegertracing/jaeger chart v4+ dropped in-memory storage, so we deploy the
+# official all-in-one image directly. Supports OTLP gRPC on port 4317.
+# ──────────────────────────────────────────────────────────────────────────────
+jaeger:
+  enabled: true
+  image:
+    repository: jaegertracing/all-in-one
+    tag: "1.57.0"
+    pullPolicy: IfNotPresent
+  maxTraces: 50000
+  service:
+    type: ClusterIP      # access via: kubectl port-forward svc/jaeger 16686:16686
+    uiNodePort: 32001    # only used when type is NodePort
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

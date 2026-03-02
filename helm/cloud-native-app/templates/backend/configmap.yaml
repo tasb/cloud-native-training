@@ -2,9 +2,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: backend-config
-  namespace: {{ .Values.namespace }}
+  namespace: cloud-native-app
   labels:
-    {{- include "cloud-native-app.labels" . | nindent 4 }}
+    app: backend
 data:
   DB_HOST: "postgres-service"
   DB_PORT: "5432"
