@@ -11,7 +11,9 @@ metadata:
     prometheus.io/port: "3000"
     prometheus.io/path: "/metrics"
 spec:
+  {{- if not .Values.hpa.enabled }}
   replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "cloud-native-app.backendSelectorLabels" . | nindent 6 }}
@@ -43,11 +45,15 @@ spec:
             # ── OpenTelemetry configuration ──────────────────────────────────
             - name: OTEL_SERVICE_NAME
               value: {{ .Values.backend.otel.serviceName | quote }}
-            # Disable trace export — no tracing backend deployed in this release.
-            # Set OTEL_TRACES_EXPORTER to "otlp" and add OTEL_EXPORTER_OTLP_ENDPOINT
-            # when a Jaeger / Tempo / OTLP-compatible backend is available.
+            - name: OTEL_TRACES_SAMPLER
+              value: {{ .Values.backend.otel.tracesSampler | quote }}
+            {{- if .Values.jaeger.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ include "cloud-native-app.jaegerEndpoint" . | quote }}
+            {{- else }}
             - name: OTEL_TRACES_EXPORTER
               value: "none"
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health

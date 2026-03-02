@@ -16,7 +16,7 @@ frontend:
   replicaCount: 1
   image:
     repository: tasb/training-frontend
-    tag: "metrics"
+    tag: "traces"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -36,7 +36,7 @@ backend:
   replicaCount: 1
   image:
     repository: tasb/training-backend
-    tag: "metrics"          # v2 includes OpenTelemetry instrumentation
+    tag: "traces"           # includes OpenTelemetry instrumentation + richer spans
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -51,6 +51,7 @@ backend:
   # OpenTelemetry configuration (env vars injected into the container)
   otel:
     serviceName: backend-api
+    tracesSampler: parentbased_always_on
 
 # ---------------------------------------------------------------------------
 # Database (PostgreSQL)
@@ -159,6 +160,11 @@ grafana:
           jsonData:
             timeInterval: "15s"
 
+        - name: Jaeger
+          type: jaeger
+          uid: jaeger
+          url: http://jaeger.cloud-native-metrics.svc.cluster.local:16686
+          access: proxy
 
   # Dashboard providers — load from a ConfigMap mounted at /var/lib/grafana/dashboards
   dashboardProviders:
@@ -187,3 +193,56 @@ grafana:
       cpu: 200m
       memory: 256Mi
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Jaeger all-in-one (deployed via templates/jaeger/, NOT a Helm sub-chart)
+# The jaegertracing/jaeger chart v4+ requires persistent storage (Cassandra /
+# Elasticsearch). We use the all-in-one image with in-memory storage instead.
+# Backend sends OTLP/gRPC spans to port 4317. UI is on port 16686.
+# ──────────────────────────────────────────────────────────────────────────────
+jaeger:
+  enabled: true
+  image:
+    repository: jaegertracing/all-in-one
+    tag: "1.57.0"
+    pullPolicy: IfNotPresent
+  maxTraces: 50000
+  service:
+    type: ClusterIP      # access via: kubectl port-forward svc/jaeger 16686:16686
+    uiNodePort: 32001    # only used when type is NodePort
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HPA — scales backend based on db_items_total
+# Formula: desiredReplicas = ceil(db_items_total / itemsPerReplica)
+# Examples: 1 pod for 0-10 items, 2 pods for 11-20, 3 pods for 21-30, etc.
+# ──────────────────────────────────────────────────────────────────────────────
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 10
+  itemsPerReplica: 10   # 1 replica per N items in DB
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sub-chart: prometheus-adapter
+# https://github.com/prometheus-community/helm-charts/tree/main/charts/prometheus-adapter
+# Bridges Prometheus metrics into the Kubernetes External Metrics API so HPA
+# can consume db_items_total.
+# NOTE: prometheus.url assumes release name "training" and namespace "cloud-native-metrics".
+# ──────────────────────────────────────────────────────────────────────────────
+prometheus-adapter:
+  enabled: true
+  prometheus:
+    url: http://training-prometheus-server.cloud-native-metrics.svc.cluster.local
+    port: 80
+  rules:
+    external:
+      - seriesQuery: 'db_items_total{job="backend-api"}'
+        name:
+          as: "db_items_total"
+        metricsQuery: 'max(db_items_total{job="backend-api"})'

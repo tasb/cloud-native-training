@@ -25,6 +25,13 @@ dependencies:
     repository: "https://grafana.github.io/helm-charts"
     condition: grafana.enabled
 
+  # Prometheus Adapter – bridges Prometheus metrics into the Kubernetes
+  # Custom Metrics API so that the HPA can scale on db_items_total.
+  - name: prometheus-adapter
+    version: "4.10.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus-adapter.enabled
+
   # Jaeger all-in-one is deployed via our own template (templates/jaeger/)
   # rather than a sub-chart because the jaegertracing/jaeger chart v4+
   # no longer supports in-memory storage (requires Cassandra/Elasticsearch).
