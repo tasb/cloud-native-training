@@ -1,0 +1,31 @@
+{{- if .Values.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cloud-native-app.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend-deployment
+  minReplicas: {{ .Values.hpa.minReplicas }}
+  maxReplicas: {{ .Values.hpa.maxReplicas }}
+  metrics:
+    # Scale on db_items_total exposed via prometheus-adapter.
+    # desiredReplicas = ceil(db_items_total / itemsPerReplica)
+    # e.g. 25 items → ceil(25/10) = 3 pods
+    - type: External
+      external:
+        metric:
+          name: db_items_total
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.hpa.itemsPerReplica | quote }}
+  behavior:
+    scaleDown:
+      # Prevent rapid scale-down when item count fluctuates near a boundary.
+      stabilizationWindowSeconds: 60
+{{- end }}

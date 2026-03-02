@@ -1,0 +1,49 @@
+{{- if .Values.jaeger.enabled }}
+# Jaeger all-in-one: collector + query UI in a single process with in-memory storage.
+# The official jaegertracing/jaeger Helm chart v4+ dropped in-memory mode and requires
+# Cassandra or Elasticsearch. We deploy the all-in-one image directly as our own template.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cloud-native-app.labels" . | nindent 4 }}
+    app: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+        - name: jaeger
+          image: "{{ .Values.jaeger.image.repository }}:{{ .Values.jaeger.image.tag }}"
+          imagePullPolicy: {{ .Values.jaeger.image.pullPolicy }}
+          args:
+            - "--memory.max-traces={{ .Values.jaeger.maxTraces }}"
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+          ports:
+            - name: ui
+              containerPort: 16686   # Jaeger UI / Query REST API
+            - name: otlp-grpc
+              containerPort: 4317    # OTLP gRPC — backend sends spans here
+            - name: otlp-http
+              containerPort: 4318    # OTLP HTTP
+            - name: thrift-http
+              containerPort: 14268   # Jaeger Thrift HTTP (legacy clients)
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 16686
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.jaeger.resources | nindent 12 }}
+{{- end }}

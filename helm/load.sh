@@ -5,5 +5,5 @@ while true; do
   curl -s -X POST http://training.metrics.local/api/items \
     -H 'Content-Type: application/json' \
     -d '{"name":"Load test item","description":"generated"}' > /dev/null
-  sleep 0.5
+  sleep 5
 done

@@ -1,0 +1,30 @@
+{{- if .Values.jaeger.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cloud-native-app.labels" . | nindent 4 }}
+    app: jaeger
+spec:
+  type: {{ .Values.jaeger.service.type }}
+  selector:
+    app: jaeger
+  ports:
+    - name: ui
+      port: 16686
+      targetPort: 16686
+      {{- if eq .Values.jaeger.service.type "NodePort" }}
+      nodePort: {{ .Values.jaeger.service.uiNodePort }}
+      {{- end }}
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: thrift-http
+      port: 14268
+      targetPort: 14268
+{{- end }}

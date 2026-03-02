@@ -76,10 +76,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Jaeger OTLP gRPC endpoint (used by backend as OTEL_EXPORTER_OTLP_ENDPOINT).
-Points to the jaeger Service deployed by templates/jaeger/.
+Jaeger OTLP gRPC endpoint injected into the backend as OTEL_EXPORTER_OTLP_ENDPOINT.
+Points to the jaeger Service created by templates/jaeger/service.yaml.
 */}}
 {{- define "cloud-native-app.jaegerEndpoint" -}}
 {{- printf "http://jaeger.%s.svc.cluster.local:4317" .Values.namespace }}
 {{- end }}
-

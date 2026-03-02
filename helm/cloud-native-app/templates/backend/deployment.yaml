@@ -11,7 +11,9 @@ metadata:
     prometheus.io/port: "3000"
     prometheus.io/path: "/metrics"
 spec:
+  {{- if not .Values.hpa.enabled }}
   replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "cloud-native-app.backendSelectorLabels" . | nindent 6 }}
