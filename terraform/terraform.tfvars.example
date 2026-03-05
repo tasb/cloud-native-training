@@ -1,0 +1,39 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# terraform.tfvars.example
+# Copy to terraform.tfvars and fill in your values.
+# Never commit terraform.tfvars — it is in .gitignore.
+# ──────────────────────────────────────────────────────────────────────────────
+
+location            = "westeurope"
+resource_group_name = "rg-cloud-native-training"
+environment         = "training"
+
+# AKS — system pool (regular VMs, runs kube-system / Istio control plane only)
+aks_kubernetes_version = "1.29"
+aks_system_node_count  = 1
+aks_vm_size            = "Standard_D2s_v3"
+
+# AKS — spot user pool (application workloads, auto-scales to 0 when idle)
+aks_spot_vm_size   = "Standard_D2s_v3"
+aks_spot_min_count = 0
+aks_spot_max_count = 5
+
+# ACR
+acr_sku = "Standard"
+
+# PostgreSQL
+postgresql_admin_username = "pgadmin"
+postgresql_sku            = "B_Standard_B2s"
+postgresql_storage_mb     = 32768
+postgresql_version        = "15"
+
+# GitHub
+github_owner     = "tasb"
+github_repository = "cloud-native-training"
+
+# Tags
+tags = {
+  Project     = "cloud-native-training"
+  ManagedBy   = "terraform"
+  Environment = "training"
+}

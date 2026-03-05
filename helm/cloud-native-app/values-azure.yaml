@@ -1,0 +1,100 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# values-azure.yaml — AKS + Azure PostgreSQL overrides
+#
+# Use with:
+#   helm upgrade --install training ./helm/cloud-native-app \
+#     --values helm/cloud-native-app/values-azure.yaml \
+#     --set frontend.image.repository=<acr>.azurecr.io/frontend \
+#     --set frontend.image.tag=<tag> \
+#     --set backend.image.repository=<acr>.azurecr.io/backend \
+#     --set backend.image.tag=<tag> \
+#     --set database.config.host=<psql-fqdn> \
+#     --set database.config.user=<admin-user> \
+#     --set database.config.name=training_db \
+#     --set "database.secret.passwordBase64=<base64-password>"
+# ──────────────────────────────────────────────────────────────────────────────
+
+namespace: cloud-native-app
+
+# ─── Disable in-cluster PostgreSQL — use Azure Database for PostgreSQL ────────
+database:
+  enabled: false
+  config:
+    host: ""        # Injected by CI/CD: --set database.config.host=<psql-fqdn>
+    port: "5432"
+    name: training_db
+    user: pgadmin   # Injected by CI/CD: --set database.config.user=<admin>
+
+# ─── Ingress — use nginx ingress class ───────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: training.azure.local
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+
+# ─── Prometheus sub-chart overrides ──────────────────────────────────────────
+prometheus:
+  enabled: true
+  server:
+    global:
+      scrape_interval: 15s
+  serverFiles:
+    prometheus.yml:
+      scrape_configs:
+        - job_name: prometheus
+          static_configs:
+            - targets: ["localhost:9090"]
+        - job_name: backend-api
+          scrape_interval: 10s
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["backend-service.cloud-native-app.svc.cluster.local:3000"]
+        - job_name: kube-state-metrics
+          static_configs:
+            - targets: ["training-kube-state-metrics.cloud-native-app.svc.cluster.local:8080"]
+
+# ─── Grafana sub-chart overrides ─────────────────────────────────────────────
+grafana:
+  enabled: true
+  service:
+    type: ClusterIP   # Use Ingress for external access on AKS
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          uid: prometheus
+          url: http://training-prometheus-server.cloud-native-app.svc.cluster.local
+          access: proxy
+          isDefault: true
+          jsonData:
+            timeInterval: "15s"
+        - name: Jaeger
+          type: jaeger
+          uid: jaeger
+          url: http://jaeger.cloud-native-app.svc.cluster.local:16686
+          access: proxy
+  dashboardsConfigMaps:
+    default: "training-grafana-dashboards"
+
+# ─── HPA — enabled ───────────────────────────────────────────────────────────
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 5
+  itemsPerReplica: 10
+
+# ─── prometheus-adapter ───────────────────────────────────────────────────────
+prometheus-adapter:
+  enabled: true
+  prometheus:
+    url: http://training-prometheus-server.cloud-native-app.svc.cluster.local
+    port: 80
+  rules:
+    external:
+      - seriesQuery: 'db_items_total{job="backend-api"}'
+        name:
+          as: "db_items_total"
+        metricsQuery: 'max(db_items_total{job="backend-api"})'

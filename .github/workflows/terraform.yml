@@ -1,0 +1,301 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Terraform — Infrastructure Provisioning
+#
+# Triggered on:
+#   - Pull Request touching terraform/ → runs plan only, posts output as PR comment
+#   - Push to main touching terraform/ → runs plan + apply automatically
+#   - Manual dispatch → choose between plan, apply, or destroy
+#
+# Required GitHub repository variables (Settings > Secrets and variables > Variables):
+#   TF_BACKEND_RG         — Resource group of the state storage account
+#   TF_BACKEND_SA         — Storage account name for Terraform state
+#   TF_BACKEND_CONTAINER  — Blob container name (e.g. tfstate)
+#   TF_VAR_LOCATION       — Azure region (e.g. westeurope)
+#   TF_VAR_RG_NAME        — Resource group to create (e.g. rg-cloud-native-training)
+#   TF_VAR_ENVIRONMENT    — Environment label (e.g. training)
+#
+# Required GitHub repository secrets:
+#   AZURE_CLIENT_ID       — App registration client ID (OIDC federated)
+#   AZURE_TENANT_ID       — Azure AD tenant ID
+#   AZURE_SUBSCRIPTION_ID — Azure subscription ID
+#
+# One-time state backend bootstrap (run once locally before first CI run):
+#   az group create -n <TF_BACKEND_RG> -l westeurope
+#   az storage account create -n <TF_BACKEND_SA> -g <TF_BACKEND_RG> --sku Standard_LRS
+#   az storage container create -n tfstate --account-name <TF_BACKEND_SA>
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Terraform
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to perform"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+permissions:
+  contents: read
+  id-token: write        # Required for OIDC authentication to Azure
+  pull-requests: write   # Required to post plan output as a PR comment
+  actions: write         # Required for the GitHub provider to manage Actions variables
+
+# Cancel in-progress runs on the same branch to avoid concurrent state modifications
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false # Never cancel Terraform — could leave state locked
+
+defaults:
+  run:
+    working-directory: terraform
+
+env:
+  # azurerm provider and backend both honour these ARM_ variables
+  ARM_USE_OIDC:        "true"
+  ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  TF_IN_AUTOMATION:    "true"   # Suppresses interactive prompts
+  TF_INPUT:            "false"
+  # GitHub provider reads this to manage Actions variables
+  GITHUB_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Checkov — IaC Security Scan
+  # Runs before terraform plan/apply to catch misconfigurations early.
+  # Results are uploaded to GitHub Code Scanning (Security tab).
+  # ────────────────────────────────────────────────────────────────────────────
+  checkov:
+    name: Checkov — IaC Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: cli,sarif
+          output_file_path: console,checkov.sarif
+          soft_fail: true        # Report findings but don't block the pipeline
+          download_external_modules: false
+
+      - name: Upload Checkov SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov.sarif
+        continue-on-error: true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Terraform Plan / Apply / Destroy
+  # ────────────────────────────────────────────────────────────────────────────
+  terraform:
+    name: >-
+      Terraform
+      ${{ github.event_name == 'push' && 'Apply' ||
+          github.event_name == 'workflow_dispatch' && inputs.action ||
+          'Plan' }}
+    runs-on: ubuntu-latest
+    needs: checkov   # Always wait for security scan before planning or applying
+    environment: >-
+      ${{ (github.event_name == 'push' ||
+           (github.event_name == 'workflow_dispatch' && inputs.action != 'plan'))
+          && 'production' || '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Tooling ──────────────────────────────────────────────────────────────
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.7"
+          terraform_wrapper: true  # Captures exit codes for plan -detailed-exitcode
+
+      # ── Azure Login ───────────────────────────────────────────────────────────
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── Format Check ─────────────────────────────────────────────────────────
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true   # Report but do not block — fix on next commit
+
+      # ── Init ─────────────────────────────────────────────────────────────────
+      - name: Terraform Init
+        id: init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_BACKEND_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_BACKEND_SA }}" \
+            -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" \
+            -backend-config="key=cloud-native-training.tfstate" \
+            -backend-config="use_oidc=true" \
+            -backend-config="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
+            -backend-config="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
+            -backend-config="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+      # ── Validate ─────────────────────────────────────────────────────────────
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      # ── Plan ─────────────────────────────────────────────────────────────────
+      - name: Terraform Plan
+        id: plan
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          terraform plan \
+            -var="location=${{ vars.TF_VAR_LOCATION || 'westeurope' }}" \
+            -var="resource_group_name=${{ vars.TF_VAR_RG_NAME || 'rg-cloud-native-training' }}" \
+            -var="environment=${{ vars.TF_VAR_ENVIRONMENT || 'training' }}" \
+            -out=tfplan \
+            -no-color \
+            -detailed-exitcode 2>&1 | tee plan.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true  # exit code 2 = changes present (not an error)
+
+      # ── Post plan to PR ───────────────────────────────────────────────────────
+      - name: Post Plan to Pull Request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PLAN: ${{ steps.plan.outputs.stdout }}
+        with:
+          script: |
+            const fmt      = '${{ steps.fmt.outcome }}';
+            const init     = '${{ steps.init.outcome }}';
+            const validate = '${{ steps.validate.outcome }}';
+            const plan     = '${{ steps.plan.outcome }}';
+            const planText = process.env.PLAN || '(no output)';
+
+            const icon = (outcome) => outcome === 'success' ? '✅' : '❌';
+
+            const body = [
+              '## Terraform Plan',
+              '',
+              `| Step | Status |`,
+              `|------|--------|`,
+              `| Format  | ${icon(fmt)} \`${fmt}\` |`,
+              `| Init    | ${icon(init)} \`${init}\` |`,
+              `| Validate| ${icon(validate)} \`${validate}\` |`,
+              `| Plan    | ${icon(plan)} \`${plan}\` |`,
+              '',
+              '<details><summary>Plan output</summary>',
+              '',
+              '```terraform',
+              planText.substring(0, 60000),  // GitHub comment limit guard
+              '```',
+              '</details>',
+              '',
+              '_Pushed to `main` will automatically apply this plan._',
+            ].join('\n');
+
+            // Replace previous bot comment if it exists
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const prev = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('## Terraform Plan')
+            );
+            if (prev) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                comment_id: prev.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      # ── Fail if plan produced errors (exit code 1) ────────────────────────────
+      - name: Check Plan Exit Code
+        if: steps.plan.outputs.exit_code == '1'
+        run: |
+          echo "Terraform plan failed — see output above."
+          exit 1
+
+      # ── Apply ─────────────────────────────────────────────────────────────────
+      - name: Terraform Apply
+        if: |
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && inputs.action == 'apply')
+        run: terraform apply -auto-approve tfplan
+
+      # ── Destroy (manual only, requires explicit selection) ───────────────────
+      - name: Terraform Plan Destroy
+        id: plan-destroy
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'
+        run: |
+          terraform plan -destroy \
+            -var="location=${{ vars.TF_VAR_LOCATION || 'westeurope' }}" \
+            -var="resource_group_name=${{ vars.TF_VAR_RG_NAME || 'rg-cloud-native-training' }}" \
+            -var="environment=${{ vars.TF_VAR_ENVIRONMENT || 'training' }}" \
+            -out=tfplan-destroy \
+            -no-color 2>&1 | tee plan-destroy.txt
+
+      - name: Terraform Destroy
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'
+        run: terraform apply -auto-approve tfplan-destroy
+
+      # ── Upload plan as artifact (for audit trail) ────────────────────────────
+      - name: Upload plan artifact
+        if: always() && (steps.plan.outcome == 'success' || steps.plan-destroy.outcome == 'success')
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ github.run_id }}
+          path: |
+            terraform/tfplan
+            terraform/tfplan-destroy
+            terraform/plan.txt
+            terraform/plan-destroy.txt
+          retention-days: 30
+
+      # ── Capture and display outputs after apply ──────────────────────────────
+      - name: Terraform Output
+        if: |
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && inputs.action == 'apply')
+        run: |
+          echo "=== Infrastructure Outputs ==="
+          terraform output
+          echo ""
+          echo "=== GitHub Actions Variables to set ==="
+          terraform output -json github_actions_vars | jq -r 'to_entries[] | "\(.key) = \(.value)"'

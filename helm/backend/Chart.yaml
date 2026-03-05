@@ -1,0 +1,9 @@
+apiVersion: v2
+name: backend
+description: |
+  Cloud Native Training — Backend API (AKS deployment).
+  Connects to Azure Database for PostgreSQL via ExternalName service.
+  Reads DB password from Azure Key Vault using the Secrets Store CSI driver.
+type: application
+version: 1.0.0
+appVersion: "2.0.0"

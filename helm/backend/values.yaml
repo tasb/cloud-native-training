@@ -1,0 +1,78 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# helm/backend/values.yaml
+#
+# Mandatory values to override at install time:
+#   image.repository, image.tag
+#   database.externalFqdn
+#   keyVault.name, keyVault.tenantId, keyVault.identityClientId
+# ──────────────────────────────────────────────────────────────────────────────
+
+replicaCount: 1
+
+image:
+  repository: ""          # e.g. acrtraininga1b2c3d4.azurecr.io/backend
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 3000
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+database:
+  # ExternalName service name (K8s-internal alias for the Azure PSQL FQDN)
+  # The backend connects to this service name; no code changes needed.
+  externalServiceName: postgres-external
+  externalFqdn: ""        # Azure PostgreSQL FQDN (required)
+                          # e.g. psql-training-a1b2c3d4.postgres.database.azure.com
+  port: "5432"
+  name: "training_db"
+  user: "pgadmin"
+
+# ─── Key Vault CSI Driver ─────────────────────────────────────────────────────
+# The Secrets Store CSI driver syncs the DB password from Key Vault into a
+# Kubernetes Secret that the deployment references as an env var.
+keyVault:
+  name: ""                # Azure Key Vault name (required)
+  tenantId: ""            # Azure tenant ID (required)
+  identityClientId: ""    # Client ID of the Key Vault CSI managed identity
+                          # From: terraform output kv_csi_identity_client_id
+  secretName: "postgresql-admin-password"   # Name of the secret in Key Vault
+  k8sSecretName: "backend-db-password"      # K8s Secret created by CSI driver
+
+# ─── OpenTelemetry ────────────────────────────────────────────────────────────
+otel:
+  serviceName: backend-api
+  tracesSampler: parentbased_always_on
+  exporterEndpoint: ""    # OTLP gRPC endpoint; empty = traces disabled
+
+# ─── Resources ────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# ─── HPA ──────────────────────────────────────────────────────────────────────
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+# ─── Liveness / readiness probes ──────────────────────────────────────────────
+livenessProbe:
+  initialDelaySeconds: 15
+  periodSeconds: 10
+
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+# ─── Pod annotations ──────────────────────────────────────────────────────────
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3000"
+  prometheus.io/path: "/metrics"

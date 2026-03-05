@@ -1,0 +1,46 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# helm/frontend/values.yaml
+#
+# Mandatory values to override at install time:
+#   image.repository, image.tag
+#   backend.serviceName (must match the backend chart's service name)
+# ──────────────────────────────────────────────────────────────────────────────
+
+replicaCount: 1
+
+image:
+  repository: ""          # e.g. acrtraininga1b2c3d4.azurecr.io/frontend
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+# ─── Backend proxy ────────────────────────────────────────────────────────────
+# nginx proxies /api/ requests to this service. Must be in the same namespace.
+backend:
+  serviceName: backend-service   # K8s service name created by the backend chart
+  port: 3000
+
+# ─── Ingress ──────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: training.local
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  tls: []
+    # - secretName: training-tls
+    #   hosts:
+    #     - training.local
+
+# ─── Resources ────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi

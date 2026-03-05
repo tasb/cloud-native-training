@@ -1,0 +1,9 @@
+apiVersion: v2
+name: frontend
+description: |
+  Cloud Native Training — Frontend (AKS deployment).
+  Nginx serves static HTML and proxies /api/ calls to the backend service.
+  window.API_BASE_URL is injected via nginx sub_filter so the app targets the same origin.
+type: application
+version: 1.0.0
+appVersion: "2.0.0"

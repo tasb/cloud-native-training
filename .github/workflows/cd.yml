@@ -1,0 +1,265 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# CD — Main Branch (Full CI/CD Pipeline)
+#
+# Triggered on every push to main (i.e., after a PR is merged). Runs the full
+# security scan suite, builds production images, pushes to ACR with both a
+# commit SHA tag and 'latest', then deploys to the production namespace.
+#
+# Same repository variables and secrets as ci.yml are required.
+# Additional variable:
+#   PROD_NAMESPACE — target Kubernetes namespace (default: cloud-native-app)
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: CD — Main
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "helm/**"
+      - ".github/workflows/cd.yml"
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+env:
+  IMAGE_TAG: ${{ github.sha }}
+  PROD_NAMESPACE: ${{ vars.PROD_NAMESPACE || 'cloud-native-app' }}
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # CredScan — detect secrets / credentials committed to the repo
+  # ────────────────────────────────────────────────────────────────────────────
+  credscan:
+    name: CredScan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Microsoft Security DevOps (CredScan)
+        uses: microsoft/security-devops-action@v1
+        id: msdo
+        with:
+          categories: "secrets"
+
+      - name: Upload CredScan SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.msdo.outputs.sarifFile }}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # SCA — Snyk Open Source (dependency vulnerability scan)
+  # ────────────────────────────────────────────────────────────────────────────
+  sca:
+    name: SCA — Snyk Open Source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: app/backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: app/backend
+        run: npm ci --ignore-scripts
+
+      - name: Snyk SCA — Backend
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: >
+            --file=app/backend/package.json
+            --severity-threshold=high
+            --sarif-file-output=snyk-sca.sarif
+
+      - name: Upload Snyk SCA SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: snyk-sca.sarif
+        continue-on-error: true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # SAST — Snyk Code (static code analysis)
+  # ────────────────────────────────────────────────────────────────────────────
+  sast:
+    name: SAST — Snyk Code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Snyk Code (SAST)
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: code test
+          args: >
+            --severity-threshold=high
+            --sarif-file-output=snyk-sast.sarif
+
+      - name: Upload Snyk SAST SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: snyk-sast.sarif
+        continue-on-error: true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Build, container scan, and push production images
+  # ────────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push — ${{ matrix.app }}
+    needs: [credscan, sca, sast]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: Build image
+        run: |
+          docker build \
+            -t ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.app }}:${{ env.IMAGE_TAG }} \
+            -t ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.app }}:latest \
+            app/${{ matrix.app }}/
+
+      - name: Snyk Container Scan
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.app }}:${{ env.IMAGE_TAG }}
+          args: >
+            --severity-threshold=high
+            --file=app/${{ matrix.app }}/Dockerfile
+            --sarif-file-output=snyk-container-${{ matrix.app }}.sarif
+        continue-on-error: true
+
+      - name: Upload container scan SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: snyk-container-${{ matrix.app }}.sarif
+        continue-on-error: true
+
+      - name: Push images to ACR
+        run: |
+          docker push ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.app }}:${{ env.IMAGE_TAG }}
+          docker push ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.app }}:latest
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Deploy to production namespace on AKS
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy to Production
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: production # Requires environment protection rules + approval
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "latest"
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ vars.AKS_RESOURCE_GROUP }} \
+            --name ${{ vars.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Retrieve PostgreSQL password from Key Vault
+        run: |
+          PG_PASSWORD=$(az keyvault secret show \
+            --name postgresql-admin-password \
+            --vault-name ${{ vars.KEY_VAULT_NAME }} \
+            --query value -o tsv)
+          PG_PASSWORD_B64=$(echo -n "${PG_PASSWORD}" | base64 -w 0)
+          echo "::add-mask::${PG_PASSWORD}"
+          echo "PG_PASSWORD_B64=${PG_PASSWORD_B64}" >> "$GITHUB_ENV"
+
+      - name: Enable Istio sidecar injection on namespace
+        run: |
+          kubectl create namespace ${{ env.PROD_NAMESPACE }} --dry-run=client -o yaml \
+            | kubectl apply -f -
+          kubectl label namespace ${{ env.PROD_NAMESPACE }} \
+            istio.io/rev=asm-1-22 --overwrite
+
+      # ── Deploy Backend chart ───────────────────────────────────────────────
+      # Uses Key Vault CSI driver for DB password — no plain-text secrets in CI.
+      - name: Helm deploy — backend
+        run: |
+          helm upgrade --install backend ./helm/backend \
+            --namespace "${{ env.PROD_NAMESPACE }}" \
+            --create-namespace \
+            --set image.repository="${{ vars.ACR_LOGIN_SERVER }}/backend" \
+            --set image.tag="${{ env.IMAGE_TAG }}" \
+            --set database.externalFqdn="${{ vars.PSQL_FQDN }}" \
+            --set database.user="${{ vars.PSQL_ADMIN_USER }}" \
+            --set database.name="${{ vars.PSQL_DB_NAME }}" \
+            --set keyVault.name="${{ vars.KEY_VAULT_NAME }}" \
+            --set keyVault.tenantId="${{ secrets.AZURE_TENANT_ID }}" \
+            --set keyVault.identityClientId="${{ vars.KV_CSI_IDENTITY_CLIENT_ID }}" \
+            --timeout 10m \
+            --wait \
+            --atomic
+
+      # ── Deploy Frontend chart ──────────────────────────────────────────────
+      - name: Helm deploy — frontend
+        run: |
+          helm upgrade --install frontend ./helm/frontend \
+            --namespace "${{ env.PROD_NAMESPACE }}" \
+            --set image.repository="${{ vars.ACR_LOGIN_SERVER }}/frontend" \
+            --set image.tag="${{ env.IMAGE_TAG }}" \
+            --set ingress.host="${{ vars.APP_HOST || 'training.local' }}" \
+            --timeout 5m \
+            --wait \
+            --atomic
+
+      - name: Verify deployment rollout
+        run: |
+          kubectl rollout status deployment/backend -n ${{ env.PROD_NAMESPACE }} --timeout=5m
+          kubectl rollout status deployment/frontend -n ${{ env.PROD_NAMESPACE }} --timeout=5m
+          echo "All deployments healthy."
+
+      - name: Print deployment summary
+        run: |
+          echo "=== Production Deployment Summary ==="
+          echo "Namespace : ${{ env.PROD_NAMESPACE }}"
+          echo "Image tag : ${{ env.IMAGE_TAG }}"
+          echo "Commit    : ${{ github.sha }}"
+          echo "Triggered : ${{ github.actor }}"
+          kubectl get pods -n ${{ env.PROD_NAMESPACE }}
