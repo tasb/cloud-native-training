@@ -1,29 +1,3 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Terraform — Infrastructure Provisioning
-#
-# Triggered on:
-#   - Pull Request touching terraform/ → runs plan only, posts output as PR comment
-#   - Push to main touching terraform/ → runs plan + apply automatically
-#   - Manual dispatch → choose between plan, apply, or destroy
-#
-# Required GitHub repository variables (Settings > Secrets and variables > Variables):
-#   TF_BACKEND_RG         — Resource group of the state storage account
-#   TF_BACKEND_SA         — Storage account name for Terraform state
-#   TF_BACKEND_CONTAINER  — Blob container name (e.g. tfstate)
-#   TF_VAR_LOCATION       — Azure region (e.g. westeurope)
-#   TF_VAR_RG_NAME        — Resource group to create (e.g. rg-cloud-native-training)
-#   TF_VAR_ENVIRONMENT    — Environment label (e.g. training)
-#
-# Required GitHub repository secrets:
-#   AZURE_CLIENT_ID       — App registration client ID (OIDC federated)
-#   AZURE_TENANT_ID       — Azure AD tenant ID
-#   AZURE_SUBSCRIPTION_ID — Azure subscription ID
-#
-# One-time state backend bootstrap (run once locally before first CI run):
-#   az group create -n <TF_BACKEND_RG> -l westeurope
-#   az storage account create -n <TF_BACKEND_SA> -g <TF_BACKEND_RG> --sku Standard_LRS
-#   az storage container create -n tfstate --account-name <TF_BACKEND_SA>
-# ──────────────────────────────────────────────────────────────────────────────
 
 name: Terraform
 
