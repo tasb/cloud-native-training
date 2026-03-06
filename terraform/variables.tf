@@ -26,7 +26,7 @@ variable "environment" {
 variable "aks_kubernetes_version" {
   description = "Kubernetes version for AKS (check: az aks get-versions --location westeurope)"
   type        = string
-  default     = "1.29"
+  default     = "1.31"
 }
 
 variable "aks_system_node_count" {

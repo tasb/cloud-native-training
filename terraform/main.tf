@@ -147,8 +147,9 @@ resource "azurerm_postgresql_flexible_server" "main" {
   version                = var.postgresql_version
 
   # VNet integration — private connectivity only
-  delegated_subnet_id = azurerm_subnet.postgresql.id
-  private_dns_zone_id = azurerm_private_dns_zone.postgresql.id
+  delegated_subnet_id           = azurerm_subnet.postgresql.id
+  private_dns_zone_id           = azurerm_private_dns_zone.postgresql.id
+  public_network_access_enabled = false # Required when using VNet injection
 
   backup_retention_days        = 7
   geo_redundant_backup_enabled = false # Disable for training
@@ -164,17 +165,8 @@ resource "azurerm_postgresql_flexible_server_database" "app" {
   charset   = "UTF8"
   collation = "en_US.utf8"
 }
-
-# Allow connections from AKS subnet
-resource "azurerm_postgresql_flexible_server_firewall_rule" "aks_subnet" {
-  name      = "allow-aks-subnet"
-  server_id = azurerm_postgresql_flexible_server.main.id
-  # Private DNS + VNet injection handles connectivity; this rule covers any
-  # non-VNet-injected access patterns (e.g. CI runners with public IP).
-  # For fully private, remove this rule and rely on VNet integration only.
-  start_ip_address = "0.0.0.0"
-  end_ip_address   = "0.0.0.0" # Azure services firewall exception
-}
+# Note: firewall rules are not compatible with VNet-injected servers (private access only).
+# AKS connects to PostgreSQL via the delegated subnet and private DNS zone.
 
 # ──────────────────────────────────────────────────────────────────────────────
 # AKS Cluster
