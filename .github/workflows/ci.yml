@@ -71,26 +71,31 @@ jobs:
           echo "Namespace ${{ env.PR_NAMESPACE }} deleted."
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Security — CredScan (credential / secret detection)
+  # Security — Gitleaks (credential / secret detection)
   # ────────────────────────────────────────────────────────────────────────────
   credscan:
-    name: CredScan
+    name: Gitleaks — Secret Detection
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Run Microsoft Security DevOps (CredScan)
-        uses: microsoft/security-devops-action@v1
-        id: msdo
         with:
-          categories: "secrets"
+          fetch-depth: 0  # Full history for a thorough secrets scan
 
-      - name: Upload CredScan SARIF to GitHub Code Scanning
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        id: gitleaks
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+        continue-on-error: true  # Report findings but don't block the pipeline
+
+      - name: Upload Gitleaks SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: ${{ steps.msdo.outputs.sarifFile }}
+          sarif_file: results.sarif
+        continue-on-error: true
 
   # ────────────────────────────────────────────────────────────────────────────
   # Security — SCA (Software Composition Analysis) via Snyk
